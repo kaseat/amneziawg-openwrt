@@ -19,10 +19,17 @@ jobs:
             vermagic: "6a9e125268c43e0bae8cecb014c8ab03"
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout AmneziaWG package sources
+        uses: actions/checkout@v4
+        with:
+          path: awg-src
+
+      - name: Checkout OpenWrt
+        uses: actions/checkout@v4
         with:
           repository: openwrt/openwrt
           ref: v${{ matrix.build_env.tag }}
+          path: openwrt
           fetch-depth: 0
 
       - name: Cache Tools and Kernel
@@ -31,20 +38,26 @@ jobs:
         env:
           cache-name: "cache-tools-kernel-${{ matrix.build_env.tag }}-${{ matrix.build_env.pkgarch}}-${{ matrix.build_env.target}}-${{ matrix.build_env.subtarget}}"
         with:
-          path: "**"
+          path: "openwrt/**"
           key: ${{ runner.os }}-build-vm4-${{ env.cache-name }}
           restore-keys: |
             ${{ runner.os }}-build-vm4-cache-tools-kernel-${{ matrix.build_env.tag }}-${{ matrix.build_env.pkgarch}}-
 
       - name: Building kernel and tools
         #if: ${{ steps.cache-tools-kernel.outputs.cache-hit != 'true' }}
+        working-directory: openwrt
         run: |
           echo "pkgarch: ${{ matrix.build_env.pkgarch}}, target:${{ matrix.build_env.target}}, subtarget: ${{ matrix.build_env.subtarget}}"
 
           # Setup & install feeds
           wget https://downloads.openwrt.org/releases/${{ matrix.build_env.tag }}/targets/${{ matrix.build_env.target}}/${{ matrix.build_env.subtarget}}/feeds.buildinfo -O feeds.conf
-          echo "src-git awgopenwrt https://github.com/yury-sannikov/awg-openwrt.git" >> ./feeds.conf
           ./scripts/feeds update && ./scripts/feeds install -a
+
+          # Use packages from this repository instead of an external feed.
+          mkdir -p package/awgopenwrt
+          cp -a ../awg-src/kmod-amneziawg package/awgopenwrt/
+          cp -a ../awg-src/amneziawg-tools package/awgopenwrt/
+          cp -a ../awg-src/luci-proto-amneziawg package/awgopenwrt/luci-app-amneziawg
 
           # Setup config with AWG and dependencies
           wget https://downloads.openwrt.org/releases/${{ matrix.build_env.tag }}/targets/${{ matrix.build_env.target}}/${{ matrix.build_env.subtarget}}/config.buildinfo -O .config
@@ -80,6 +93,7 @@ jobs:
           fi
 
       - name: Build AmneziaWG
+        working-directory: openwrt
         run: |
           VERMAGIC=`cat ./build_dir/target-*/linux-*/linux-*/.vermagic`
           echo "Vermagic: $VERMAGIC"
@@ -92,16 +106,17 @@ jobs:
           fi
 
           # Ignore kmod build for some targets, replace with the awg-go
-          make package/kmod-amneziawg/{clean,download,prepare} V=s || true
-          make package/kmod-amneziawg/compile V=s || true
+          make package/awgopenwrt/kmod-amneziawg/{clean,download,prepare} V=s || true
+          make package/awgopenwrt/kmod-amneziawg/compile V=s || true
 
-          make package/luci-app-amneziawg/{clean,download,prepare}
-          make package/luci-app-amneziawg/compile V=s
+          make package/awgopenwrt/luci-app-amneziawg/{clean,download,prepare}
+          make package/awgopenwrt/luci-app-amneziawg/compile V=s
 
-          make V=s package/amneziawg-tools/{clean,download,prepare}
-          make V=s package/amneziawg-tools/compile
+          make V=s package/awgopenwrt/amneziawg-tools/{clean,download,prepare}
+          make V=s package/awgopenwrt/amneziawg-tools/compile
 
       - name: Prepare artifacts
+        working-directory: openwrt
         run: |
           tag_name=${{  github.ref_name }}
           mkdir -p awgrelease
@@ -113,5 +128,4 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          files: awgrelease/*.ipk
-
+          files: openwrt/awgrelease/*.ipk
