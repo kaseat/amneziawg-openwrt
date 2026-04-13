@@ -1,9 +1,12 @@
 name: Create Release on Tag
-# on: [workflow_dispatch]
 on:
+  workflow_dispatch:
   push:
     tags:
-      - "v24.10.2"
+      - "v*"
+
+permissions:
+  contents: write
 
 jobs:
   build:
