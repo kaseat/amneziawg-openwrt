@@ -12,6 +12,9 @@ jobs:
   build:
     name: "v${{ matrix.build_env.tag }} - ${{ matrix.build_env.pkgarch}} :: ${{ matrix.build_env.target}}/${{ matrix.build_env.subtarget}} build"
     runs-on: ubuntu-latest
+    concurrency:
+      group: openwrt-${{ matrix.build_env.tag }}-${{ matrix.build_env.target }}-${{ matrix.build_env.subtarget }}
+      cancel-in-progress: true
     strategy:
       matrix:
         build_env:
@@ -33,18 +36,22 @@ jobs:
           repository: openwrt/openwrt
           ref: v${{ matrix.build_env.tag }}
           path: openwrt
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Cache Tools and Kernel
+      - name: Cache OpenWrt build directories
         id: cache-tools-kernel
         uses: actions/cache@v4
         env:
-          cache-name: "cache-tools-kernel-${{ matrix.build_env.tag }}-${{ matrix.build_env.pkgarch}}-${{ matrix.build_env.target}}-${{ matrix.build_env.subtarget}}"
+          cache-name: "openwrt-build-${{ matrix.build_env.tag }}-${{ matrix.build_env.pkgarch}}-${{ matrix.build_env.target}}-${{ matrix.build_env.subtarget}}-${{ matrix.build_env.vermagic }}"
         with:
-          path: "openwrt/**"
-          key: ${{ runner.os }}-build-vm4-${{ env.cache-name }}
+          path: |
+            openwrt/dl
+            openwrt/staging_dir
+            openwrt/build_dir
+            openwrt/.ccache
+          key: ${{ runner.os }}-${{ env.cache-name }}-v1
           restore-keys: |
-            ${{ runner.os }}-build-vm4-cache-tools-kernel-${{ matrix.build_env.tag }}-${{ matrix.build_env.pkgarch}}-
+            ${{ runner.os }}-${{ env.cache-name }}-
 
       - name: Building kernel and tools
         #if: ${{ steps.cache-tools-kernel.outputs.cache-hit != 'true' }}
@@ -70,6 +77,8 @@ jobs:
           echo "CONFIG_PACKAGE_kmod-crypto-lib-chacha20=m" >> .config
           echo "CONFIG_PACKAGE_kmod-crypto-lib-chacha20poly1305=m" >> .config
           echo "CONFIG_PACKAGE_kmod-crypto-chacha20poly1305=m" >> .config
+          echo "CONFIG_CCACHE=y" >> .config
+          echo 'CONFIG_CCACHE_DIR=".ccache"' >> .config
 
           make defconfig
 
