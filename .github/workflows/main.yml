@@ -74,18 +74,18 @@ jobs:
           make defconfig
 
           echo "    > make tools/install"
-          make tools/install -i -j `nproc`
+          make tools/install -j "$(nproc)"
 
           cat ./build_dir/target-*/linux-*/linux-*/.vermagic || true
 
           echo "    > make toolchain/install"
-          make toolchain/install  -i -j `nproc`
+          make toolchain/install -j "$(nproc)"
 
           cat ./build_dir/target-*/linux-*/linux-*/.vermagic || true
 
           # compile kernel module
           echo "    > make target/linux/compile"
-          make target/linux/compile  -i -j `nproc` V=s
+          make target/linux/compile -j "$(nproc)" V=s
 
           VERMAGIC=`cat ./build_dir/target-*/linux-*/linux-*/.vermagic`
           VERMAGIC_EXPECTED=${{ matrix.build_env.vermagic }}
@@ -108,14 +108,19 @@ jobs:
             exit 1
           fi
 
-          # Ignore kmod build for some targets, replace with the awg-go
-          make package/awgopenwrt/kmod-amneziawg/{clean,download,prepare} V=s || true
-          make package/awgopenwrt/kmod-amneziawg/compile V=s || true
+          make package/awgopenwrt/kmod-amneziawg/clean V=s
+          make package/awgopenwrt/kmod-amneziawg/download V=s
+          make package/awgopenwrt/kmod-amneziawg/prepare V=s
+          make package/awgopenwrt/kmod-amneziawg/compile V=s
 
-          make package/awgopenwrt/luci-app-amneziawg/{clean,download,prepare}
+          make package/awgopenwrt/luci-app-amneziawg/clean
+          make package/awgopenwrt/luci-app-amneziawg/download
+          make package/awgopenwrt/luci-app-amneziawg/prepare
           make package/awgopenwrt/luci-app-amneziawg/compile V=s
 
-          make V=s package/awgopenwrt/amneziawg-tools/{clean,download,prepare}
+          make V=s package/awgopenwrt/amneziawg-tools/clean
+          make V=s package/awgopenwrt/amneziawg-tools/download
+          make V=s package/awgopenwrt/amneziawg-tools/prepare
           make V=s package/awgopenwrt/amneziawg-tools/compile
 
       - name: Prepare artifacts
@@ -129,6 +134,14 @@ jobs:
           cp bin/targets/${{ matrix.build_env.target}}/${{ matrix.build_env.subtarget}}/packages/kmod-amneziawg_*.ipk awgrelease/kmod-amneziawg_${postfix}.ipk
 
       - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ github.ref_name }}
           files: openwrt/awgrelease/*.ipk
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: awg-openwrt-${{ github.ref_name }}-${{ matrix.build_env.pkgarch }}-${{ matrix.build_env.target }}-${{ matrix.build_env.subtarget }}
+          path: openwrt/awgrelease/*.ipk

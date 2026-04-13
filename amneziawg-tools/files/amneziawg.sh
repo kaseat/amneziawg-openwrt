@@ -5,7 +5,7 @@
 # shellcheck disable=SC1091,SC3003,SC3043
 
 WG=/usr/bin/awg
-if [ ! -x $WG ]; then
+if [ ! -x "$WG" ]; then
 	logger -t "amneziawg" "error: missing amneziawg-tools (${WG})"
 	exit 0
 fi
@@ -37,23 +37,23 @@ proto_amneziawg_init_config() {
 }
 
 proto_amneziawg_is_kernel_mode() {
-	if [ ! -e /sys/module/amneziawg ]; then
-		modprobe amneziawg >/dev/null 2>&1 || true
+	local userspace_impl="${WG_QUICK_USERSPACE_IMPLEMENTATION:-amneziawg-go}"
 
-		if [ -e /sys/module/amneziawg ]; then
-			return 0
-		else
-			if ! command -v "${WG_QUICK_USERSPACE_IMPLEMENTATION:-amneziawg-go}" >/dev/null; then
-				ret=$?
-				echo "Please install either kernel module (kmod-amneziawg package) or user-space implementation in /usr/bin/amneziawg-go."
-				exit $ret
-			else
-				return 1
-			fi
-		fi
-	else
+	if [ -e /sys/module/amneziawg ]; then
 		return 0
 	fi
+
+	modprobe amneziawg >/dev/null 2>&1 || true
+	if [ -e /sys/module/amneziawg ]; then
+		return 0
+	fi
+
+	if command -v "${userspace_impl}" >/dev/null 2>&1; then
+		return 1
+	fi
+
+	echo "Please install either kernel module (kmod-amneziawg package) or user-space implementation (${userspace_impl})."
+	return 2
 }
 
 proto_amneziawg_setup_peer() {
@@ -165,6 +165,7 @@ proto_amneziawg_setup() {
 	local ip6prefix
 	local nohostroute
 	local tunlink
+	local userspace_impl="${WG_QUICK_USERSPACE_IMPLEMENTATION:-amneziawg-go}"
 
 	# Amnezia WG specific parameters
 	local awg_jc
@@ -199,15 +200,29 @@ proto_amneziawg_setup() {
 	config_get awg_h3 "${config}" "awg_h3"
 	config_get awg_h4 "${config}" "awg_h4"
 
-	if proto_amneziawg_is_kernel_mode; then
+	proto_amneziawg_is_kernel_mode
+	case "$?" in
+	0)
 		logger -t "amneziawg" "info: using kernel-space kmod-amneziawg for ${WG}"
-  	ip link del dev "${config}" 2>/dev/null
-		ip link add dev "${config}" type amneziawg
-	else
-		logger -t "amneziawg" "info: using user-space amneziawg-go for ${WG}"
+		ip link del dev "${config}" 2>/dev/null
+		ip link add dev "${config}" type amneziawg || {
+			proto_setup_failed "${config}"
+			exit 1
+		}
+		;;
+	1)
+		logger -t "amneziawg" "info: using user-space ${userspace_impl} for ${WG}"
 		rm -f "/var/run/wireguard/${config}.sock"
-		amneziawg-go "${config}"
-	fi
+		"${userspace_impl}" "${config}" || {
+			proto_setup_failed "${config}"
+			exit 1
+		}
+		;;
+	*)
+		proto_setup_failed "${config}"
+		exit 1
+		;;
+	esac
 
 	if [ "${mtu}" ]; then
 		ip link set mtu "${mtu}" dev "${config}"
@@ -305,12 +320,15 @@ proto_amneziawg_setup() {
 
 proto_amneziawg_teardown() {
 	local config="$1"
-	proto_amneziawg_check_installed
-	if proto_amneziawg_is_kernel_mode; then
+	proto_amneziawg_is_kernel_mode
+	case "$?" in
+	0)
 		ip link del dev "${config}" >/dev/null 2>&1
-	else
-		rm -f "/var/run/amneziawg/${config}.sock"
-	fi
+		;;
+	1)
+		rm -f "/var/run/wireguard/${config}.sock"
+		;;
+	esac
 }
 
 [ -n "$INCLUDE_ONLY" ] || {
