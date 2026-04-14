@@ -31,7 +31,7 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)/uapi
 	cp -f $(LINUX_DIR)/include/uapi/linux/wireguard.h $(PKG_BUILD_DIR)/uapi/
 	for patch in files/*; do \
-		patch -d $(PKG_BUILD_DIR)/ -F3 -t -p0 -i "$$(pwd)/$${patch}"; \
+		patch -d $(PKG_BUILD_DIR)/ -F3 -t -p0 -i "$$$$(pwd)/$$$${patch}"; \
 	done
 	cp -f src/Makefile $(PKG_BUILD_DIR)
 endef
